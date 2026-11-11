@@ -56,7 +56,13 @@ from incl.audio_input import (
     set_default_output,
 )
 
-ROOT = Path(__file__).resolve().parent
+def app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+ROOT = app_dir()
 LOG_PATH = ROOT / "log" / "input_switcher.log"
 MUTEX_NAME = "Local\\WinJInputSwitcher"
 STOP_NAME = "Local\\WinJInputSwitcherStop"
@@ -875,16 +881,23 @@ def install_startup() -> Path:
     legacy = link.parent / "Win+J устройства ввода.lnk"
     if legacy.exists() and legacy != link:
         legacy.unlink()
-    python = Path(sys.executable)
-    pythonw = python.with_name("pythonw.exe")
-    if pythonw.exists():
-        python = pythonw
-    script = Path(__file__).resolve()
+    if getattr(sys, "frozen", False):
+        target = Path(sys.executable).resolve()
+        arguments = ""
+        workdir = str(target.parent)
+    else:
+        target = Path(sys.executable)
+        pythonw = target.with_name("pythonw.exe")
+        if pythonw.exists():
+            target = pythonw
+        script = Path(__file__).resolve()
+        arguments = f'"{script}"'
+        workdir = str(script.parent)
     env = os.environ.copy()
     env["HOTKEY_LINK"] = str(link)
-    env["HOTKEY_PYTHON"] = str(python)
-    env["HOTKEY_ARGS"] = f'"{script}"'
-    env["HOTKEY_WORKDIR"] = str(script.parent)
+    env["HOTKEY_PYTHON"] = str(target)
+    env["HOTKEY_ARGS"] = arguments
+    env["HOTKEY_WORKDIR"] = workdir
     env["HOTKEY_DESC"] = "Win+J — вывод, Win+Alt+J — ввод"
     command = (
         "$shell = New-Object -ComObject WScript.Shell; "
@@ -971,12 +984,28 @@ def run(preview: bool) -> None:
         app.shutdown()
 
 
+def ensure_console() -> None:
+    if not getattr(sys, "frozen", False):
+        return
+    kernel32.GetConsoleWindow.restype = wintypes.HWND
+    kernel32.AllocConsole.restype = wintypes.BOOL
+    if kernel32.GetConsoleWindow():
+        return
+    if not kernel32.AllocConsole():
+        return
+    sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace", buffering=1)
+    sys.stderr = sys.stdout
+
+
 def main() -> None:
     sys.excepthook = lambda kind, value, trace: (
         None
         if issubclass(kind, KeyboardInterrupt)
         else sys.__excepthook__(kind, value, trace)
     )
+    cli_flags = {"--exit", "--remove-startup", "--startup", "--check"}
+    if any(flag in cli_flags for flag in sys.argv[1:]):
+        ensure_console()
     try:
         if "--exit" in sys.argv:
             request_exit()

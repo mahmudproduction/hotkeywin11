@@ -4,3 +4,7 @@ log/*.log
 json/
 .venv/
 venv/
+build/
+dist/
+*.spec
+release/log/
